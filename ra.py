@@ -17,6 +17,7 @@ from playwright.async_api import async_playwright, Page, TimeoutError
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1t8jZFnJ5PxW9ry8SPN8WAGhbsgICn5F9BZCR9d4vB5U/edit"
 SHEET_NAME_GDYNIA_APART = "RankGdyniaApart"
 SHEET_NAME_GDANSK_APART = "RankGdanskApart"  # Новый лист
+SHEET_NAME_RANK_ABN = "Rank ABN"
 CREDENTIALS_FILE = "dailyranking.json"
 STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
@@ -27,8 +28,6 @@ MAX_RANK = 400
 LISTING_COLUMNS_GDYNIA_APARTMENTS = {
     "Bohos Apartment - 2 min to City Center Gdynia & Seaside": 6,
     "Sailor Apartment- 10 minutes to Seaside & City Center": 7,
-    "Azure Apartment - Seaside & City Center Gdynia": 8,
-    "Portlight Apartment -at Marina Yacht Park, Old Town Gdynia": 9
 }
 
 # Гданьск (Начиная с колонки 9 -> I)
@@ -129,40 +128,72 @@ def find_row_by_date(ws, target_date: dt.date, retries: int = 3):
     return None
 
 
+# Словарь соответствия колонок для листа Rank ABN (Гдыня)
+# AL=38, AM=39, AN=40, AO=41
+ABN_GDYNIA_COLUMNS = {
+    "Bohos Apartment - 2 min to City Center Gdynia & Seaside": 38,
+    "Sailor Apartment- 10 minutes to Seaside & City Center": 39,
+    "Azure Apartment - Seaside & City Center Gdynia": 40,
+    "Portlight Apartment -at Marina Yacht Park, Old Town Gdynia": 41
+}
+
+
 def update_spreadsheet_data(ws: gspread.Worksheet, row_index: int, ranks_map: dict, listings_map: dict, city_name: str,
                             mmrent_count: int = None):
-    SLEEP_TIME = 1.5
-    print(f"\n[GSheets] Обновление {city_name} (Ряд {row_index})...")
+    SLEEP_TIME = 1.2
+    print(f"\n[GSheets] Обновление данных для {city_name}...")
 
-    # 1. ЗАПИСЬ MMRent ТОЛЬКО ДЛЯ ГДАНЬСКА
+    # 1. Запись MMRent (только в основной лист Гданьска)
     if mmrent_count is not None and city_name == "Gdansk":
-        for attempt in range(1, 4):
+        try:
+            ws.update(range_name=f"C{row_index}", values=[[mmrent_count]])
+            time.sleep(SLEEP_TIME)
+        except:
+            pass
+
+    # 2. Инициализация листа Rank ABN
+    ws_abn = initialize_gspread(SHEET_NAME_RANK_ABN)
+    our_found_ranks = [r for r in ranks_map.values() if r is not None]
+
+    # 3. Основной цикл записи
+    for title, col_idx in listings_map.items():
+        raw_rank = ranks_map.get(title)
+
+        # Определяем координаты ячеек
+        cell_main = f"{col_to_letter(col_idx)}{row_index}"
+
+        # Определяем колонку для листа ABN
+        if city_name == "Gdynia":
+            target_col_abn = ABN_GDYNIA_COLUMNS.get(title, col_idx)
+        else:
+            target_col_abn = col_idx
+        cell_abn = f"{col_to_letter(target_col_abn)}{row_index}"
+
+        # --- ЛОГИКА ЗАПИСИ ИЛИ ОЧИСТКИ ---
+
+        if raw_rank is not None:
+            # Если нашли — записываем новые ранги
+            higher_than_us = len([r for r in our_found_ranks if r < raw_rank])
+            abn_rank = raw_rank - higher_than_us
+
             try:
-                # В новых версиях gspread рекомендуется использовать именованные аргументы
-                ws.update(range_name=f"C{row_index}", values=[[mmrent_count]])
-                print(f"   -> MMRent ({mmrent_count}) записан в C{row_index}")
-                time.sleep(SLEEP_TIME)
-                break
-            except Exception as e:
-                print(f"   ⚠️ Попытка {attempt} записи MMRent не удалась: {e}")
-                time.sleep(5)
+                ws.update(range_name=cell_main, values=[[raw_rank]], value_input_option='USER_ENTERED')
+                if ws_abn:
+                    ws_abn.update(range_name=cell_abn, values=[[abn_rank]], value_input_option='USER_ENTERED')
+                print(f"   ✅ {title[:15]}: Найдено #{raw_rank} -> Записано")
+            except:
+                pass
+        else:
+            # ЕСЛИ НЕ НАШЛИ — ОЧИЩАЕМ СТАРЫЕ ДАННЫЕ
+            try:
+                ws.update(range_name=cell_main, values=[[""]])  # Пустые кавычки удалят старое число
+                if ws_abn:
+                    ws_abn.update(range_name=cell_abn, values=[[""]])
+                print(f"   🗑️ {title[:15]}: НЕ НАЙДЕНО -> Ячейка очищена")
+            except:
+                pass
 
-    # 2. ЗАПИСЬ РАНГОВ ДЛЯ ЛЮБОГО ГОРОДА (Теперь вне условия if Gdansk)
-    for listing_title, col_idx in listings_map.items():
-        rank = ranks_map.get(listing_title)
-        if rank is not None:
-            cell_range = f"{col_to_letter(col_idx)}{row_index}"
-            for attempt in range(1, 4):
-                try:
-                    # Исправлен порядок аргументов, чтобы не было DeprecationWarning
-                    ws.update(range_name=cell_range, values=[[rank]], value_input_option='USER_ENTERED')
-                    print(f"   -> {listing_title[:30]}...: #{rank} -> {cell_range}")
-                    time.sleep(SLEEP_TIME)
-                    break
-                except Exception as e:
-                    print(f"   ⚠️ Ошибка записи {cell_range} (попытка {attempt}): {e}")
-                    time.sleep(3)
-
+        time.sleep(SLEEP_TIME)
 
 # ---------------------------------------------
 # Логика скрейпинга
@@ -342,7 +373,6 @@ async def main_async():
 
         await browser.close()
     print("\n🏁 Все города и даты обработаны.")
-
 
 if __name__ == "__main__":
     asyncio.run(main_async())
