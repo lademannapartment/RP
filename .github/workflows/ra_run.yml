@@ -1,7 +1,13 @@
 name: RA
 
 on:
-  workflow_dispatch: 
+  schedule:
+    # 04:00 UTC = 05:00 по польскому времени (зимнее время)
+    # Запуск каждого 3-го числа месяца
+    - cron: '0 4 */3 * *'
+  
+  workflow_dispatch:
+    # Эта строка оставляет кнопку для ручного запуска в любое время
 jobs:
   run-script:
     runs-on: ubuntu-latest
