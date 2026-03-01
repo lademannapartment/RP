@@ -95,7 +95,7 @@ def authorize_gspread():
     else:
         # Для локального запуска
         creds = Credentials.from_service_account_file(
-            "dailyranking.json", scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            "silken-glyph-443313-i4-86edc01b6c81.json", scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
     gc = gspread.authorize(creds)
 
