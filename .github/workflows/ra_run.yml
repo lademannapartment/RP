@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5  # Обновлено до v5 (поддержка Node 24)
+        uses: actions/checkout@v5  # Поддержка Node 24
 
       - name: Set up Python
-        uses: actions/setup-python@v6 # Обновлено до v6 (поддержка Node 24)
+        uses: actions/setup-python@v6 # Поддержка Node 24
         with:
           python-version: '3.11'
 
-      # НОВЫЙ ШАГ: Создаем файл из секрета
+      # Мы создаем файл именно с тем именем, которое прописано у вас в коде ra.py
       - name: Decode Google Credentials
-        run: echo "${{ secrets.G_KEYS_BASE64 }}" | base64 --decode > credentials.json
+        run: echo "${{ secrets.G_KEYS_BASE64 }}" | base64 --decode > silken-glyph-443313-i4-cdf14b36288a.json
 
       - name: Install dependencies
         run: |
@@ -34,5 +34,4 @@ jobs:
       - name: Run Python script
         run: python ra.py
         env:
-          # Указываем Python, где искать файл с ключами
-          GOOGLE_APPLICATION_CREDENTIALS: credentials.json
+          GOOGLE_APPLICATION_CREDENTIALS: silken-glyph-443313-i4-cdf14b36288a.json
