@@ -7,18 +7,23 @@ on:
     - cron: '0 4 */3 * *'
   
   workflow_dispatch:
-    # Эта строка оставляет кнопку для ручного запуска в любое время
+    # Кнопка для ручного запуска
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4  # v4 — это стандарт для Node 20
+        uses: actions/checkout@v5  # Обновлено до v5 (поддержка Node 24)
 
       - name: Set up Python
-        uses: actions/setup-python@v5 # v5 — это стандарт для Node 20
+        uses: actions/setup-python@v6 # Обновлено до v6 (поддержка Node 24)
         with:
           python-version: '3.11'
+
+      # НОВЫЙ ШАГ: Создаем файл из секрета
+      - name: Decode Google Credentials
+        run: echo "${{ secrets.G_KEYS_BASE64 }}" | base64 --decode > credentials.json
 
       - name: Install dependencies
         run: |
@@ -28,3 +33,6 @@ jobs:
 
       - name: Run Python script
         run: python ra.py
+        env:
+          # Указываем Python, где искать файл с ключами
+          GOOGLE_APPLICATION_CREDENTIALS: credentials.json
