@@ -18,7 +18,7 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1t8jZFnJ5PxW9ry8SPN8WA
 SHEET_NAME_GDYNIA_APART = "RankGdyniaApart"
 SHEET_NAME_GDANSK_APART = "RankGdanskApart"  # Новый лист
 SHEET_NAME_RANK_ABN = "Rank ABN"
-CREDENTIALS_FILE = "silken-glyph-443313-i4-86edc01b6c81.json"
+CREDENTIALS_FILE = "silken-glyph-443313-i4-cdf14b36288a.json"
 STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
 DAYS_FORWARD = 60
@@ -95,7 +95,7 @@ def authorize_gspread():
     else:
         # Для локального запуска
         creds = Credentials.from_service_account_file(
-            "silken-glyph-443313-i4-86edc01b6c81.json", scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            "silken-glyph-443313-i4-cdf14b36288a.json", scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
     gc = gspread.authorize(creds)
 
