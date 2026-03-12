@@ -9,15 +9,14 @@ on:
   workflow_dispatch:
     # Эта строка оставляет кнопку для ручного запуска в любое время
 jobs:
-  run-script:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4  # v4 — это стандарт для Node 20
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5 # v5 — это стандарт для Node 20
         with:
           python-version: '3.11'
 
