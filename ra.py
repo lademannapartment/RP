@@ -60,7 +60,8 @@ LISTING_COLUMNS_GDANSK_APARTMENTS = {
     "Queem Studio 10 min to Old Town Gdansk": 34,
     "Exclusive Apartment at Old Town Gdansk": 35,
     "Riverview Apartment at Old Town Gdańsk": 36,
-    "Coconut Apartment - 5 min to Baltic Sea": 37
+    "Coconut Apartment - 5 min to Baltic Sea": 37,
+    "Granaria Apartment - Heart of Motlawa Promenade at Old Town Gdansk": 38
 }
 
 # Global gspread client
