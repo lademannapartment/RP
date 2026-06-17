@@ -61,7 +61,9 @@ LISTING_COLUMNS_GDANSK_APARTMENTS = {
     "Exclusive Apartment at Old Town Gdansk": 35,
     "Riverview Apartment at Old Town Gdańsk": 36,
     "Coconut Apartment - 5 min to Baltic Sea": 37,
-    "Granaria Apartment - Heart of Motlawa Promenade at Old Town Gdansk": 38
+    "Granaria Apartment - Heart of Motlawa Promenade at Old Town Gdansk": 38,
+    "Casa Verde Apartment at Old Town Gdańsk": 39,
+    "Casa Pluma Apartment at Old Town Gdańsk": 40
 }
 
 # Global gspread client
