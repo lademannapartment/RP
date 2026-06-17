@@ -132,12 +132,9 @@ def find_row_by_date(ws, target_date: dt.date, retries: int = 3):
 
 
 # Словарь соответствия колонок для листа Rank ABN (Гдыня)
-# AL=38, AM=39, AN=40, AO=41
 ABN_GDYNIA_COLUMNS = {
-    "Bohos Apartment - 2 min to City Center Gdynia & Seaside": 38,
-    "Sailor Apartment- 10 minutes to Seaside & City Center": 39,
-    "Azure Apartment - Seaside & City Center Gdynia": 40,
-    "Portlight Apartment -at Marina Yacht Park, Old Town Gdynia": 41
+    "Bohos Apartment - 2 min to City Center Gdynia & Seaside": 41,
+    "Sailor Apartment- 10 minutes to Seaside & City Center": 42,
 }
 
 
