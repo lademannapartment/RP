@@ -25,7 +25,7 @@ STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
 DAYS_FORWARD = 60
 MAX_RANK = 400
-MAX_PARALLEL_PAGES = 2   # сколько дат обрабатывать одновременно
+MAX_PARALLEL_PAGES = 3   # сколько дат обрабатывать одновременно
 DATE_RETRIES = 2         # сколько раз повторить дату при ошибке
 
 # Гдыня (Колонки 6, 7, 8, 9 -> F, G, H, I)
@@ -286,8 +286,16 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
     return found_ranks, mmrent_count
 
 
+# Сторонние трекеры и реклама, которые не нужны для скрапинга
+BLOCKED_HOSTS = (
+    "google-analytics.com", "googletagmanager.com", "doubleclick.net", "googlesyndication.com",
+    "facebook.net", "facebook.com", "criteo", "hotjar", "scorecardresearch", "taboola", "outbrain",
+)
+
+
 async def block_aggressively(route):
-    if route.request.resource_type in ["image", "media", "font"]:
+    req = route.request
+    if req.resource_type in ["image", "media", "font"] or any(h in req.url for h in BLOCKED_HOSTS):
         await route.abort()
     else:
         await route.continue_()
