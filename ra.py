@@ -59,7 +59,7 @@ LISTING_COLUMNS_GDANSK_APARTMENTS = {
     "Queem Studio 10 min to Old Town Gdansk": 29,
     "Avenue 77 Apartment - 15 Minutes to Seaside": 30,
     "Honey Apartment- Cozy Retreat, 10 Minutes to Gdańsk Old Town": 31,
-    "Birch Studio - Peaceful Retreat, 10 Minutes to Gdańsk Old Town & Seaside": 32
+    "Birch Studio - Peaceful Retreat, 20 Minutes to Gdańsk Old Town & Seaside": 32
 }
 
 # Global gspread client
