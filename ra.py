@@ -25,8 +25,9 @@ STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
 DAYS_FORWARD = 60
 MAX_RANK = 400
-MAX_PARALLEL_PAGES = 3   # сколько дат обрабатывать одновременно
+MAX_PARALLEL_PAGES = 2   # сколько дат обрабатывать одновременно
 DATE_RETRIES = 2         # сколько раз повторить дату при ошибке
+MIN_CARDS = 10           # меньше карточек = страница не загрузилась (блокировка), ячейки не трогаем
 
 # Гдыня (Колонки 6, 7, 8, 9 -> F, G, H, I)
 LISTING_COLUMNS_GDYNIA_APARTMENTS = {
@@ -283,7 +284,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
         except:
             break
 
-    return found_ranks, mmrent_count
+    return found_ranks, mmrent_count, seen_cards_count
 
 
 # Сторонние трекеры и реклама, которые не нужны для скрапинга
@@ -325,7 +326,9 @@ async def process_date_for_city(page: Page, city_name: str, ws, url_builder: cal
         except:
             pass
 
-        ranks_map, mmrent_count = await scrape_cards_and_get_ranks(page, listings_map)
+        ranks_map, mmrent_count, seen_cards = await scrape_cards_and_get_ranks(page, listings_map)
+        if seen_cards < MIN_CARDS:
+            raise RuntimeError(f"загружено только {seen_cards} карточек, похоже на блокировку — ячейки не трогаю")
         await asyncio.to_thread(update_spreadsheet_data, ws, row_index, ranks_map, listings_map, city_name, mmrent_count)
 
     except Exception as e:
