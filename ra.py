@@ -6,12 +6,14 @@ import socket
 import sys
 import time
 import re
+import random
+import subprocess
 from typing import Tuple, Dict
 import gc as py_gc
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import APIError
-from playwright.async_api import async_playwright, Page, TimeoutError
+from playwright.async_api import async_playwright, Page
 
 # --- КОНСТАНТЫ ---
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1t8jZFnJ5PxW9ry8SPN8WAGhbsgICn5F9BZCR9d4vB5U/edit"
@@ -23,6 +25,8 @@ STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
 DAYS_FORWARD = 60
 MAX_RANK = 400
+MAX_PARALLEL_PAGES = 2   # сколько дат обрабатывать одновременно
+DATE_RETRIES = 2         # сколько раз повторить дату при ошибке
 
 # Гдыня (Колонки 6, 7, 8, 9 -> F, G, H, I)
 LISTING_COLUMNS_GDYNIA_APARTMENTS = {
@@ -33,33 +37,29 @@ LISTING_COLUMNS_GDYNIA_APARTMENTS = {
 # Гданьск (Начиная с колонки 9 -> I)
 LISTING_COLUMNS_GDANSK_APARTMENTS = {
     "Swish Apartment -10 Min to Old Town Gdańsk,PKP & Shopping Mall": 9,
-    "Milky Apartment with Balcony - 3 km to Baltic Sea": 10,
-    "Homely Apartment with Balcony - 3 km to Baltic Sea": 11,
-    "Wine Apartment - 5 min to Old Town Gdańsk": 12,
-    "Wave Apartment with Amazing View- 2 km to Baltic Sea": 13,
-    "Anchor Apartment Your Docking Point in the Heart of Gdańsk": 14,
-    "Boho Apartment - 10 Min to Old Town Gdańsk,PKP & Shopping Mall": 15,
-    "Luna Premium Apartment at Old Town Gdansk": 16,
-    "Libertas Premium Apartment at Old Town Gdansk": 17,
-    "Postcard Apartment Scenic Escape 10 Minutes to Gdańsk Old Town and Seaside": 18,
-    "Panorama Apartment with Amazing View- 2 km to Baltic Sea, 15 Minutes to Gdańsk Old Town": 19,
-    "Old Town Heaven Apartment": 20,
-    "Seredino Blue Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 21,
-    "Seredino Green Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 22,
-    "Seredino Relax Apartment- Romantic Escape with a Bathtub in the Bedroom, 5 Minutes to Gdańsk Old Town & Seaside": 23,
-    "Seredino Navy Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 24,
-    "Laura Apartment with Sauna & Gym, 5 Min to Baltic Sea & Polsat Plus Arena": 25,
-    "Bloom Apartment with Sauna & Gym, 5 Min to Baltic Sea & Polsat Plus Arena": 29,
-    "Legit Apartment - Old Town Gdansk": 30,
-    "Elite Apartment 15 min to Old Town Gdansk": 31,
-    "Seashell Apartment - at Gdańsk Stogi, 5 min by car to Baltic Sea": 32,
-    "Rout Studio 5 min to Old Town Gdansk": 33,
-    "Queem Studio 10 min to Old Town Gdansk": 34,
-    "Riverview Apartment at Old Town Gdansk": 36,
-    "Coconut Apartment - 5 min to Baltic Sea": 37,
-    "Granaria Apartment - Heart of Motlawa Promenade at Old Town Gdansk": 38,
-    "Casa Verde Apartment at Old Town Gdańsk": 39,
-    "Casa Pluma Apartment at Old Town Gdańsk": 40
+    "Wave Apartment with Amazing View- 2 km to Baltic Sea": 10,
+    "Anchor Apartment Your Docking Point in the Heart of Gdańsk": 11,
+    "Boho Apartment - 10 Min to Old Town Gdańsk,PKP & Shopping Mall": 12,
+    "Luna Premium Apartment at Old Town Gdansk": 13,
+    "Libertas Premium Apartment at Old Town Gdansk": 14,
+    "Panorama Apartment with Amazing View- 2 km to Baltic Sea, 15 Minutes to Gdańsk Old Town": 15,
+    "Old Town Heaven Apartment": 16,
+    "Seredino Blue Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 17,
+    "Seredino Green Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 18,
+    "Seredino Relax Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 19,
+    "Seredino Navy Apartment- Modern Comfort in a Quiet Location, 5 Minutes to Gdańsk Old Town & Seaside": 20,
+    "Laura Apartment with Sauna & Gym, 5 Min to Baltic Sea & Polsat Plus Arena": 21,
+    "Bloom Apartment with Sauna & Gym, 5 Min to Baltic Sea & Polsat Plus Arena": 22,
+    "Seashell Apartment - at Gdańsk Stogi, 5 min by car to Baltic Sea": 23,
+    "Coconut Apartment - 5 min to Baltic Sea": 24,
+    "Granaria Apartment - Heart of Motlawa Promenade at Old Town Gdansk": 25,
+    "Casa Verde Apartment at Old Town Gdańsk": 26,
+    "Casa Pluma Apartment at Old Town Gdańsk": 27,
+    "Rout Studio 5 min to Old Town Gdansk": 28,
+    "Queem Studio 10 min to Old Town Gdansk": 29,
+    "Avenue 77 Apartment - 15 Minutes to Seaside": 30,
+    "Honey Apartment- Cozy Retreat, 10 Minutes to Gdańsk Old Town": 31,
+    "Birch Studio - Peaceful Retreat, 10 Minutes to Gdańsk Old Town & Seaside": 32
 }
 
 # Global gspread client
@@ -94,16 +94,26 @@ def authorize_gspread():
     else:
         # Для локального запуска
         creds = Credentials.from_service_account_file(
-            "silken-glyph-443313-i4-cdf14b36288a.json", scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            CREDENTIALS_FILE, scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
     gc = gspread.authorize(creds)
 
 
+_spreadsheet = None
+_ws_cache = {}
+
+
 def initialize_gspread(sheet_name: str):
+    global _spreadsheet
+    if sheet_name in _ws_cache:
+        return _ws_cache[sheet_name]
     if gc is None: authorize_gspread()
     try:
-        sh = gc.open_by_url(SPREADSHEET_URL)
-        return sh.worksheet(sheet_name)
+        if _spreadsheet is None:
+            _spreadsheet = gc.open_by_url(SPREADSHEET_URL)
+        ws = _spreadsheet.worksheet(sheet_name)
+        _ws_cache[sheet_name] = ws
+        return ws
     except Exception as e:
         print(f"❌ Ошибка листа {sheet_name}: {e}")
         return None
@@ -136,60 +146,52 @@ ABN_GDYNIA_COLUMNS = {
 
 def update_spreadsheet_data(ws: gspread.Worksheet, row_index: int, ranks_map: dict, listings_map: dict, city_name: str,
                             mmrent_count: int = None):
-    SLEEP_TIME = 1.2
     print(f"\n[GSheets] Обновление данных для {city_name}...")
 
-    # 1. Запись MMRent (только в основной лист Гданьска)
+    main_updates = []
     if mmrent_count is not None and city_name == "Gdansk":
-        try:
-            ws.update(range_name=f"C{row_index}", values=[[mmrent_count]])
-            time.sleep(SLEEP_TIME)
-        except:
-            pass
+        main_updates.append({"range": f"C{row_index}", "values": [[mmrent_count]]})
 
-    # 2. Инициализация листа Rank ABN
+    # Лист Rank ABN (берётся из кэша)
     ws_abn = initialize_gspread(SHEET_NAME_RANK_ABN)
+    abn_updates = []
     our_found_ranks = [r for r in ranks_map.values() if r is not None]
 
-    # 3. Основной цикл записи
     for title, col_idx in listings_map.items():
         raw_rank = ranks_map.get(title)
-
-        # Определяем координаты ячеек
         cell_main = f"{col_to_letter(col_idx)}{row_index}"
 
-        # Определяем колонку для листа ABN
         if city_name == "Gdynia":
             target_col_abn = ABN_GDYNIA_COLUMNS.get(title, col_idx)
         else:
             target_col_abn = col_idx
         cell_abn = f"{col_to_letter(target_col_abn)}{row_index}"
 
-        # --- ЛОГИКА ЗАПИСИ ИЛИ ОЧИСТКИ ---
-
         if raw_rank is not None:
-            # Если нашли — записываем новые ранги
             higher_than_us = len([r for r in our_found_ranks if r < raw_rank])
             abn_rank = raw_rank - higher_than_us
-
-            try:
-                ws.update(range_name=cell_main, values=[[raw_rank]], value_input_option='USER_ENTERED')
-                if ws_abn:
-                    ws_abn.update(range_name=cell_abn, values=[[abn_rank]], value_input_option='USER_ENTERED')
-                print(f"   ✅ {title[:15]}: Найдено #{raw_rank} -> Записано")
-            except:
-                pass
+            main_val, abn_val = raw_rank, abn_rank
+            print(f"   ✅ {title[:15]}: Найдено #{raw_rank} -> Записано")
         else:
-            # ЕСЛИ НЕ НАШЛИ — ОЧИЩАЕМ СТАРЫЕ ДАННЫЕ
-            try:
-                ws.update(range_name=cell_main, values=[[""]])  # Пустые кавычки удалят старое число
-                if ws_abn:
-                    ws_abn.update(range_name=cell_abn, values=[[""]])
-                print(f"   🗑️ {title[:15]}: НЕ НАЙДЕНО -> Ячейка очищена")
-            except:
-                pass
+            # Не нашли — очищаем старые данные
+            main_val, abn_val = "", ""
+            print(f"   🗑️ {title[:15]}: НЕ НАЙДЕНО -> Ячейка очищена")
 
-        time.sleep(SLEEP_TIME)
+        main_updates.append({"range": cell_main, "values": [[main_val]]})
+        abn_updates.append({"range": cell_abn, "values": [[abn_val]]})
+
+    # Одна пакетная запись на каждый лист вместо записи по ячейкам
+    try:
+        if main_updates:
+            ws.batch_update(main_updates, value_input_option='USER_ENTERED')
+    except Exception as e:
+        print(f"   ❌ Ошибка записи в лист {city_name}: {e}")
+
+    if ws_abn:
+        try:
+            ws_abn.batch_update(abn_updates, value_input_option='USER_ENTERED')
+        except Exception as e:
+            print(f"   ❌ Ошибка записи в Rank ABN: {e}")
 
 # ---------------------------------------------
 # Логика скрейпинга
@@ -204,6 +206,16 @@ def build_gdansk_apartments_url(checkin: dt.date, checkout: dt.date) -> str:
     checkin_str, checkout_str = checkin.strftime("%Y-%m-%d"), checkout.strftime("%Y-%m-%d")
     base = "label=gdynia-riAzz8lSi05Ov0n2ROkbRwS752305354988%3Apl%3Ata%3Ap1%3Ap2%3Aac%3Aap%3Aneg%3Afi%3Atiaud-2382347442848%3Akwd-1011677789197%3Alp9196285%3Ali%3Adec%3Adm%3Appccp%3DUmFuZG9tSVYkc2RlIyh9YavywThF4buZtMEeOgSC-o4&aid=311097&ss=Gdańsk&dest_id=-501400&dest_type=city&order=price&nflt=ht_id%3D201"
     return f"https://www.booking.com/searchresults.pl.html?{base}&checkin={checkin_str}&checkout={checkout_str}"
+
+
+async def wait_for_more_cards(page: Page, before: int, timeout_ms: int = 8000) -> bool:
+    try:
+        await page.wait_for_function(
+            "n => document.querySelectorAll('div[data-testid=\"property-card\"]').length > n",
+            arg=before, timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
 
 
 async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Dict[str, int], int]:
@@ -236,6 +248,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
                 element = await card.query_selector('div[data-testid="title"]')
                 if not element: continue
                 title_clean = clean_text(await element.inner_text())
+                if not title_clean: continue
 
                 if "mmrent" in title_clean:
                     mmrent_count += 1
@@ -251,77 +264,93 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
         seen_cards_count = current_count
 
         if not remaining:
-            print(f"   🎯 Все объекты найдены на позиции {rank}. Останавливаю скролл.")
+            print(f"   🎯 Все объекты найдены (загружено карточек: {seen_cards_count}). Останавливаю скролл.")
             break
 
         if seen_cards_count >= MAX_RANK:
             print(f"   ⏹ Достигнут лимит в {MAX_RANK} карточек.")
             break
 
-        # Скроллим дальше
+        # Скроллим дальше: ждём появления новых карточек, а не фиксированную паузу
         try:
             show_more_button = page.locator('button:has-text("Załaduj"), button:has-text("Show more")').first
-            if await show_more_button.is_visible(timeout=2000):
+            if await show_more_button.is_visible(timeout=1000):
                 await show_more_button.click(force=True)
-                await asyncio.sleep(4)
             else:
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                await asyncio.sleep(2)
+            if not await wait_for_more_cards(page, current_count):
+                break  # новых карточек нет — выдача закончилась
         except:
             break
 
     return found_ranks, mmrent_count
 
 
-async def process_date_for_city(page: Page, city_name: str, ws: gspread.Worksheet, url_builder: callable,
+async def block_aggressively(route):
+    if route.request.resource_type in ["image", "media", "font"]:
+        await route.abort()
+    else:
+        await route.continue_()
+
+
+async def process_date_for_city(page: Page, city_name: str, ws, url_builder: callable,
                                 listings_map: dict, date_obj: dt.date):
     if not ws: return
     print(f"\n>>>> ДАТА: {date_obj.strftime('%d.%m.%Y')} — {city_name} <<<<")
-    row_index = find_row_by_date(ws, date_obj)
+    row_index = await asyncio.to_thread(find_row_by_date, ws, date_obj)
     if not row_index: return
-
-    # Функция блокировки ресурсов (картинки, шрифты)
-    async def block_aggressively(route):
-        if route.request.resource_type in ["image", "media", "font"]:
-            await route.abort()
-        else:
-            await route.continue_()
 
     url = url_builder(date_obj, date_obj + dt.timedelta(days=STAY_NIGHTS))
     try:
-        # 1. Включаем блокировку ресурсов перед переходом
-        await page.route("**/*", block_aggressively)
-
-        # 2. Переходим по ссылке
         await page.goto(url, timeout=90000, wait_until="domcontentloaded")
-        await asyncio.sleep(2)
+        # Ждём появления карточек вместо фиксированной паузы
+        try:
+            await page.wait_for_selector('div[data-testid="property-card"]', timeout=15000)
+        except Exception:
+            pass
 
-        # 3. Закрываем куки, если появились
+        # Закрываем куки, если появились
         try:
             cookie_btn = page.locator('button#onetrust-accept-btn-handler')
-            if await cookie_btn.is_visible(timeout=3000):
+            if await cookie_btn.is_visible(timeout=1000):
                 await cookie_btn.click()
         except:
             pass
 
-        # 4. Собираем данные
         ranks_map, mmrent_count = await scrape_cards_and_get_ranks(page, listings_map)
-
-        # 5. Отправляем в Google Таблицы
-        update_spreadsheet_data(ws, row_index, ranks_map, listings_map, city_name, mmrent_count)
-
-        # 6. ВАЖНО: Отключаем блокировку для этого запроса, чтобы не накапливать обработчики
-        await page.unroute("**/*")
+        await asyncio.to_thread(update_spreadsheet_data, ws, row_index, ranks_map, listings_map, city_name, mmrent_count)
 
     except Exception as e:
         print(f"❌ Ошибка {city_name} на {date_obj}: {e}")
+        raise  # пусть верхний уровень повторит дату
+
 
 import subprocess
+async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem: asyncio.Semaphore):
+    async with sem:
+        # Небольшая случайная пауза, чтобы страницы не открывались одновременно
+        await asyncio.sleep(random.uniform(1, 3))
+        for attempt in range(1, DATE_RETRIES + 1):
+            page = await context.new_page()
+            try:
+                await process_date_for_city(page, "Gdynia", ws_gdynia, build_gdynia_apartments_url,
+                                            LISTING_COLUMNS_GDYNIA_APARTMENTS, date_obj)
+                await process_date_for_city(page, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
+                                            LISTING_COLUMNS_GDANSK_APARTMENTS, date_obj)
+                print(f"🧹 Дата {date_obj} обработана")
+                return
+            except Exception as e:
+                print(f"⚠️ Попытка {attempt}/{DATE_RETRIES} для {date_obj} не удалась: {e}")
+                await asyncio.sleep(5)
+            finally:
+                await page.close()
+        print(f"❌ Дата {date_obj} пропущена после {DATE_RETRIES} попыток")
+
+
 async def main_async():
-    # --- ДОБАВЬТЕ ЭТИ СТРОКИ ---
+    # Установка браузера Chromium для Playwright (если ещё не установлен)
     print("Checking/Installing Playwright browser...")
-    subprocess.run(["python", "-m", "playwright", "install", "chromium"])
-    # ---------------------------
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
     authorize_gspread()
     ws_gdynia = initialize_gspread(SHEET_NAME_GDYNIA_APART)
     ws_gdansk = initialize_gspread(SHEET_NAME_GDANSK_APART)
@@ -338,34 +367,25 @@ async def main_async():
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--js-flags='--max-old-space-size=256'"  # Лимит памяти для скриптов
+                "--js-flags=--max-old-space-size=256"  # Лимит памяти для скриптов
             ]
         )
-        # Создаем контекст один раз
+        # Контекст создаём один раз; блокировку картинок/шрифтов задаём на весь контекст один раз
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
             locale="pl-PL",
             service_workers="block"  # Блокируем фоновые процессы
         )
+        await context.route("**/*", block_aggressively)
 
         today = dt.date.today()
-        #today = dt.date(2026, 1, 15)
-        for i in range(DAYS_FORWARD):
-            date_obj = today + dt.timedelta(days=i)
-
-            # СОЗДАЕМ ЧИСТУЮ СТРАНИЦУ
-            page = await context.new_page()
-
-            try:
-                await process_date_for_city(page, "Gdynia", ws_gdynia, build_gdynia_apartments_url,
-                                            LISTING_COLUMNS_GDYNIA_APARTMENTS, date_obj)
-
-                await process_date_for_city(page, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
-                                            LISTING_COLUMNS_GDANSK_APARTMENTS, date_obj)
-            finally:
-                await page.close()
-                py_gc.collect()  # Теперь конфликта не будет
-                print(f"🧹 ОЗУ очищена после {date_obj}")
+        sem = asyncio.Semaphore(MAX_PARALLEL_PAGES)
+        tasks = [
+            process_one_date(context, today + dt.timedelta(days=i), ws_gdynia, ws_gdansk, sem)
+            for i in range(DAYS_FORWARD)
+        ]
+        await asyncio.gather(*tasks)
+        py_gc.collect()
 
         await browser.close()
     print("\n🏁 Все города и даты обработаны.")
