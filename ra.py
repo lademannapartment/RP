@@ -230,6 +230,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
     remaining = set(listings_map.keys())
     mmrent_count = 0
     seen_cards_count = 0
+    all_found_logged = False
 
     print(f"   📈 Поиск объектов (цель: до {MAX_RANK})...")
 
@@ -264,9 +265,10 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
 
         seen_cards_count = current_count
 
-        if not remaining:
-            print(f"   🎯 Все объекты найдены (загружено карточек: {seen_cards_count}). Останавливаю скролл.")
-            break
+        # Все квартиры найдены, но дальше сканируем до 400 карточек (или до конца выдачи)
+        if not remaining and not all_found_logged:
+            print(f"   🎯 Все объекты найдены, сканирую до {MAX_RANK} карточек для подсчёта MMrent...")
+            all_found_logged = True
 
         if seen_cards_count >= MAX_RANK:
             print(f"   ⏹ Достигнут лимит в {MAX_RANK} карточек.")
