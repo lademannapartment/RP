@@ -342,8 +342,9 @@ async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem
         # Небольшая случайная пауза, чтобы страницы не открывались одновременно
         await asyncio.sleep(random.uniform(1, 3))
         for attempt in range(1, DATE_RETRIES + 1):
-            page = await context.new_page()
+            page = None
             try:
+                page = await context.new_page()
                 await process_date_for_city(page, "Gdynia", ws_gdynia, build_gdynia_apartments_url,
                                             LISTING_COLUMNS_GDYNIA_APARTMENTS, date_obj)
                 await process_date_for_city(page, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
@@ -354,7 +355,11 @@ async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem
                 print(f"⚠️ Попытка {attempt}/{DATE_RETRIES} для {date_obj} не удалась: {e}")
                 await asyncio.sleep(5)
             finally:
-                await page.close()
+                if page is not None:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass  # страница могла уже упасть — не даём этому остановить весь запуск
         print(f"❌ Дата {date_obj} пропущена после {DATE_RETRIES} попыток")
 
 
@@ -395,7 +400,11 @@ async def main_async():
             process_one_date(context, today + dt.timedelta(days=i), ws_gdynia, ws_gdansk, sem)
             for i in range(DAYS_FORWARD)
         ]
-        await asyncio.gather(*tasks)
+        # return_exceptions=True: ошибка одной даты не должна останавливать остальные
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException):
+                print(f"❌ Непредвиденная ошибка в задаче даты: {r!r}")
         py_gc.collect()
 
         await browser.close()
