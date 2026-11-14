@@ -384,22 +384,30 @@ async def main_async():
     if ws_gdansk: ws_gdansk.update_cell(1, 1, f"📅 Skan: {now_str}")
 
     async with async_playwright() as p:
+        # На вашем компьютере запускаем с окном (headless сильнее похож на бота).
+        # На сервере без экрана можно задать переменную HEADLESS=1.
+        headless = os.environ.get("HEADLESS", "0") == "1"
         browser = await p.chromium.launch(
-            headless=True,
+            headless=headless,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",  # скрываем признак автоматизации
                 "--js-flags=--max-old-space-size=256"  # Лимит памяти для скриптов
             ]
         )
         # Контекст создаём один раз; блокировку картинок/шрифтов задаём на весь контекст один раз
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             locale="pl-PL",
+            timezone_id="Europe/Warsaw",
+            viewport={"width": 1366, "height": 768},
             service_workers="block"  # Блокируем фоновые процессы
         )
+        # Убираем признак webdriver, который выдаёт автоматизацию
+        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
         await context.route("**/*", block_aggressively)
 
         today = dt.date.today()
