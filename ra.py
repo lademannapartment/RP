@@ -354,10 +354,15 @@ async def process_date_for_city(page: Page, city_name: str, ws, url_builder: cal
 
 
 import subprocess
+last_date_failed = False  # если прошлая дата не сработала (блокировка) — делаем паузы длиннее
+
+
 async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem: asyncio.Semaphore):
+    global last_date_failed
     async with sem:
         # Небольшая случайная пауза, чтобы страницы не открывались одновременно
-        await asyncio.sleep(random.uniform(60, 120))  # длинная пауза между датами, чтобы не провоцировать блокировку
+        # Адаптивная пауза: обычно 30–60 с; после неудачной даты — 2–3 мин
+        await asyncio.sleep(random.uniform(120, 180) if last_date_failed else random.uniform(30, 60))
         for attempt in range(1, DATE_RETRIES + 1):
             page = None
             try:
@@ -367,10 +372,12 @@ async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem
                 await process_date_for_city(page, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
                                             LISTING_COLUMNS_GDANSK_APARTMENTS, date_obj)
                 print(f"🧹 Дата {date_obj} обработана")
+                last_date_failed = False
                 return
             except Exception as e:
                 print(f"⚠️ Попытка {attempt}/{DATE_RETRIES} для {date_obj} не удалась: {e}")
-                await asyncio.sleep(5)
+                last_date_failed = True
+                await asyncio.sleep(random.uniform(120, 180))  # подождать перед повтором
             finally:
                 if page is not None:
                     try:
