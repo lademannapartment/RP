@@ -373,8 +373,8 @@ async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem
     global last_date_failed
     async with sem:
         # Небольшая случайная пауза, чтобы страницы не открывались одновременно
-        # Адаптивная пауза: обычно 30–60 с; после неудачной даты — 2–3 мин
-        await asyncio.sleep(random.uniform(120, 180) if last_date_failed else random.uniform(30, 60))
+        # Адаптивная пауза: обычно 10–20 с; после неудачной даты — 2–3 мин
+        await asyncio.sleep(random.uniform(120, 180) if last_date_failed else random.uniform(10, 20))
         for attempt in range(1, DATE_RETRIES + 1):
             page = None
             try:
