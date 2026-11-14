@@ -25,7 +25,7 @@ STAY_NIGHTS = 1
 TIMEOUT_SEC = 60
 DAYS_FORWARD = 60
 MAX_RANK = 400
-MAX_PARALLEL_PAGES = 2   # сколько дат обрабатывать одновременно
+MAX_PARALLEL_PAGES = 1   # сколько дат обрабатывать одновременно
 DATE_RETRIES = 2         # сколько раз повторить дату при ошибке
 MIN_CARDS = 10           # меньше карточек = страница не загрузилась (блокировка), ячейки не трогаем
 
@@ -328,6 +328,14 @@ async def process_date_for_city(page: Page, city_name: str, ws, url_builder: cal
 
         ranks_map, mmrent_count, seen_cards = await scrape_cards_and_get_ranks(page, listings_map)
         if seen_cards < MIN_CARDS:
+            # Диагностика: что реально открылось вместо выдачи (капча, ограничение или пустая страница)
+            try:
+                title = await page.title()
+                body = (await page.inner_text("body", timeout=3000))[:300].replace("\n", " ")
+                print(f"   🔎 Заголовок страницы: '{title}'")
+                print(f"   🔎 Текст страницы: {body}")
+            except Exception as diag_err:
+                print(f"   🔎 Не удалось прочитать страницу: {diag_err}")
             raise RuntimeError(f"загружено только {seen_cards} карточек, похоже на блокировку — ячейки не трогаю")
         await asyncio.to_thread(update_spreadsheet_data, ws, row_index, ranks_map, listings_map, city_name, mmrent_count)
 
@@ -340,7 +348,7 @@ import subprocess
 async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem: asyncio.Semaphore):
     async with sem:
         # Небольшая случайная пауза, чтобы страницы не открывались одновременно
-        await asyncio.sleep(random.uniform(1, 3))
+        await asyncio.sleep(random.uniform(8, 15))  # длинная пауза между датами, чтобы не провоцировать блокировку
         for attempt in range(1, DATE_RETRIES + 1):
             page = None
             try:
