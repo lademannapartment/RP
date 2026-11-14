@@ -387,9 +387,9 @@ async def main_async():
     if ws_gdansk: ws_gdansk.update_cell(1, 1, f"📅 Skan: {now_str}")
 
     async with async_playwright() as p:
-        # На вашем компьютере запускаем с окном (headless сильнее похож на бота).
-        # На сервере без экрана можно задать переменную HEADLESS=1.
-        headless = os.environ.get("HEADLESS", "0") == "1"
+        # На Mac запускаем с окном (так Booking видит обычный браузер).
+        # На Linux-сервере без экрана (GitHub Actions) — headless, иначе Chromium не стартует.
+        headless = sys.platform.startswith("linux") and not os.environ.get("DISPLAY")
         browser = await p.chromium.launch(
             headless=headless,
             args=[
