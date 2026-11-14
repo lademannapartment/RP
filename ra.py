@@ -274,23 +274,35 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
             print(f"   ⏹ Достигнут лимит в {MAX_RANK} карточек.")
             break
 
-        # Подгружаем следующие карточки: прокрутка вниз, кнопка «Załaduj», до 3 попыток
+        # Подгружаем следующие карточки: постепенная прокрутка (ленивая загрузка Booking),
+        # затем кнопка «Załaduj» (клик через DOM, если обычный клик не сработал)
         loaded_more = False
-        for _ in range(3):
+        for attempt in range(5):
             try:
+                for step in range(6):
+                    await page.evaluate("window.scrollBy(0, Math.max(600, window.innerHeight * 0.9));")
+                    await asyncio.sleep(0.6)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                await asyncio.sleep(1.5)
-                show_more_button = page.locator('button:has-text("Załaduj"), button:has-text("Show more")').first
-                if await show_more_button.is_visible(timeout=2000):
-                    await show_more_button.scroll_into_view_if_needed()
-                    await show_more_button.click(force=True)
+                await asyncio.sleep(1.0)
+                clicked = await page.evaluate("""() => {
+                    const btn = Array.from(document.querySelectorAll('button')).find(
+                        b => /Załaduj|Show more|Pokaż więcej/i.test(b.innerText));
+                    if (!btn) return 'no-button';
+                    btn.scrollIntoView({block: 'center'});
+                    btn.click();
+                    return 'clicked';
+                }""")
+                if clicked == "no-button" and attempt == 0:
+                    print("      [Страница] Кнопка «Załaduj» не найдена, жду подгрузку скроллом")
                 if await wait_for_more_cards(page, current_count, timeout_ms=15000):
                     loaded_more = True
                     break
-            except Exception:
-                pass
+                print(f"      [Страница] Попытка {attempt + 1}/5: новых карточек нет (кнопка: {clicked})")
+            except Exception as e:
+                print(f"      [Страница] Ошибка подгрузки: {e}")
         if not loaded_more:
-            break  # после 3 попыток новых карточек нет — выдача закончилась
+            print(f"   ⏸ Подгрузка остановлена на {current_count} карточках (после 5 попыток)")
+            break  # после 5 попыток новых карточек нет — выдача закончилась
         await asyncio.sleep(random.uniform(2, 4))  # пауза между подгрузками
 
     return found_ranks, mmrent_count, seen_cards_count
