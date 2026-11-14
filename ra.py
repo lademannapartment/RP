@@ -230,6 +230,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
     remaining = set(listings_map.keys())
     mmrent_count = 0
     seen_cards_count = 0
+    all_found_logged = False
 
     print(f"   📈 Поиск объектов (цель: до {MAX_RANK})...")
 
@@ -264,9 +265,10 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
 
         seen_cards_count = current_count
 
-        if not remaining:
-            print(f"   🎯 Все объекты найдены (загружено карточек: {seen_cards_count}). Останавливаю скролл.")
-            break
+        # Все квартиры найдены — но продолжаем грузить карточки до 400 (для подсчёта MMrent)
+        if not remaining and not all_found_logged:
+            print(f"   🎯 Все объекты найдены, грузим карточки до {MAX_RANK}...")
+            all_found_logged = True
 
         if seen_cards_count >= MAX_RANK:
             print(f"   ⏹ Достигнут лимит в {MAX_RANK} карточек.")
@@ -281,6 +283,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
             if not await wait_for_more_cards(page, current_count):
                 break  # новых карточек нет — выдача закончилась
+            await asyncio.sleep(random.uniform(2, 4))  # пауза между подгрузками
         except:
             break
 
@@ -348,7 +351,7 @@ import subprocess
 async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem: asyncio.Semaphore):
     async with sem:
         # Небольшая случайная пауза, чтобы страницы не открывались одновременно
-        await asyncio.sleep(random.uniform(8, 15))  # длинная пауза между датами, чтобы не провоцировать блокировку
+        await asyncio.sleep(random.uniform(60, 120))  # длинная пауза между датами, чтобы не провоцировать блокировку
         for attempt in range(1, DATE_RETRIES + 1):
             page = None
             try:
