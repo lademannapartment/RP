@@ -364,20 +364,37 @@ import subprocess
 last_date_failed = False  # если прошлая дата не сработала (блокировка) — делаем паузы длиннее
 
 
+async def city_task(context, city_name: str, ws, url_builder: callable, listings_map: dict, date_obj: dt.date):
+    """Один город на своей странице; страница закрывается даже при ошибке."""
+    page = None
+    try:
+        page = await context.new_page()
+        await process_date_for_city(page, city_name, ws, url_builder, listings_map, date_obj)
+    finally:
+        if page is not None:
+            try:
+                await page.close()
+            except Exception:
+                pass  # страница могла уже упасть — не даём этому остановить весь запуск
+
+
 async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem: asyncio.Semaphore):
     global last_date_failed
     async with sem:
-        # Небольшая случайная пауза, чтобы страницы не открывались одновременно
         # Адаптивная пауза: обычно 10–20 с; после неудачной даты — 2–3 мин
         await asyncio.sleep(random.uniform(120, 180) if last_date_failed else random.uniform(10, 20))
         for attempt in range(1, DATE_RETRIES + 1):
-            page = None
             try:
-                page = await context.new_page()
-                await process_date_for_city(page, "Gdynia", ws_gdynia, build_gdynia_apartments_url,
-                                            LISTING_COLUMNS_GDYNIA_APARTMENTS, date_obj)
-                await process_date_for_city(page, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
-                                            LISTING_COLUMNS_GDANSK_APARTMENTS, date_obj)
+                # Gdynia и Gdańsk открываем параллельно, каждый на своей странице
+                results = await asyncio.gather(
+                    city_task(context, "Gdynia", ws_gdynia, build_gdynia_apartments_url,
+                              LISTING_COLUMNS_GDYNIA_APARTMENTS, date_obj),
+                    city_task(context, "Gdansk", ws_gdansk, build_gdansk_apartments_url,
+                              LISTING_COLUMNS_GDANSK_APARTMENTS, date_obj),
+                    return_exceptions=True)
+                errors = [r for r in results if isinstance(r, BaseException)]
+                if errors:
+                    raise errors[0]
                 print(f"🧹 Дата {date_obj} обработана")
                 last_date_failed = False
                 return
@@ -385,12 +402,6 @@ async def process_one_date(context, date_obj: dt.date, ws_gdynia, ws_gdansk, sem
                 print(f"⚠️ Попытка {attempt}/{DATE_RETRIES} для {date_obj} не удалась: {e}")
                 last_date_failed = True
                 await asyncio.sleep(random.uniform(120, 180))  # подождать перед повтором
-            finally:
-                if page is not None:
-                    try:
-                        await page.close()
-                    except Exception:
-                        pass  # страница могла уже упасть — не даём этому остановить весь запуск
         print(f"❌ Дата {date_obj} пропущена после {DATE_RETRIES} попыток")
 
 
