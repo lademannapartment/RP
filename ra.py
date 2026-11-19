@@ -235,33 +235,31 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
     print(f"   📈 Поиск объектов (цель: до {MAX_RANK})...")
 
     for i in range(40):  # Итерации скроллинга
-        cards = await page.query_selector_all(PROPERTY_CARD_SELECTOR)
-        current_count = len(cards)
+        # Заголовки всех новых карточек одним вызовом в браузере (вместо отдельного запроса на каждую карточку)
+        new_titles = await page.evaluate(
+            """(start) => Array.from(document.querySelectorAll('div[data-testid="property-card"]')).slice(start)
+                 .map(c => { const el = c.querySelector('div[data-testid="title"]'); return el ? el.innerText : ''; })""",
+            seen_cards_count)
+        current_count = seen_cards_count + len(new_titles)
 
         # --- НОВАЯ СТРОКА ЛОГА ---
         if current_count > seen_cards_count:
             print(f"      [Страница] Загружено карточек: {current_count}")
 
         # Проверяем новые карточки
-        for rank, card in enumerate(cards[seen_cards_count:], start=seen_cards_count + 1):
+        for rank, raw_title in enumerate(new_titles, start=seen_cards_count + 1):
             if rank > MAX_RANK: break
+            title_clean = clean_text(raw_title)
+            if not title_clean: continue
 
-            try:
-                element = await card.query_selector('div[data-testid="title"]')
-                if not element: continue
-                title_clean = clean_text(await element.inner_text())
-                if not title_clean: continue
+            if "mmrent" in title_clean:
+                mmrent_count += 1
 
-                if "mmrent" in title_clean:
-                    mmrent_count += 1
-
-                for listing_name in list(remaining):
-                    if clean_text(listing_name) in title_clean or title_clean in clean_text(listing_name):
-                        found_ranks[listing_name] = rank
-                        remaining.remove(listing_name)
-                        print(f"   ✅ НАЙДЕНО: #{rank} {listing_name[:20]}...")
-            except:
-                continue
+            for listing_name in list(remaining):
+                if clean_text(listing_name) in title_clean or title_clean in clean_text(listing_name):
+                    found_ranks[listing_name] = rank
+                    remaining.remove(listing_name)
+                    print(f"   ✅ НАЙДЕНО: #{rank} {listing_name[:20]}...")
 
         seen_cards_count = current_count
 
@@ -279,11 +277,8 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
         loaded_more = False
         for attempt in range(5):
             try:
-                for step in range(6):
-                    await page.evaluate("window.scrollBy(0, Math.max(600, window.innerHeight * 0.9));")
-                    await asyncio.sleep(0.6)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
                 clicked = await page.evaluate("""() => {
                     const btn = Array.from(document.querySelectorAll('button')).find(
                         b => /Załaduj|Show more|Pokaż więcej/i.test(b.innerText));
@@ -303,7 +298,7 @@ async def scrape_cards_and_get_ranks(page: Page, listings_map: dict) -> Tuple[Di
         if not loaded_more:
             print(f"   ⏸ Подгрузка остановлена на {current_count} карточках (после 5 попыток)")
             break  # после 5 попыток новых карточек нет — выдача закончилась
-        await asyncio.sleep(random.uniform(2, 4))  # пауза между подгрузками
+        await asyncio.sleep(random.uniform(0.5, 1.0))  # короткая пауза между подгрузками
 
     return found_ranks, mmrent_count, seen_cards_count
 
